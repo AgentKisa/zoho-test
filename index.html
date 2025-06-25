@@ -165,17 +165,20 @@
             }
         }
 
+
         async function updateRate() {
             console.log(t('log_button_click'));
             const updateButton = document.getElementById('update-btn');
 
-
             updateButton.disabled = true;
             updateButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${t('update_button_loading')}`;
+
+            const errorContainer = document.getElementById('error-container');
 
             try {
                 const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
                 if (!nbuResponse.ok) throw new Error(t('nbu_error'));
+
                 const nbuData = await nbuResponse.json();
                 const nbuRate = nbuData[0].rate;
 
@@ -185,23 +188,24 @@
                     APIData: { "field": nbuRate }
                 });
 
-                if (updateResponse.data[0].status !== "success") throw new Error(t('crm_update_error'));
+                console.log("✅ Результат updateRecord:", updateResponse);
+
+                if (!updateResponse.data || !updateResponse.data[0] || updateResponse.data[0].status !== "success") {
+                    let errText = JSON.stringify(updateResponse.data[0]);
+                    throw new Error(`${t('crm_update_error')} ${errText}`);
+                }
 
                 console.log(t('log_crm_updated'));
                 alert(t('update_success'));
                 loadRates();
-            } catch (error) {
 
-                console.error(error);
-                const errorContainer = document.getElementById('error-container');
-                errorContainer.textContent = error.message;
+            } catch (error) {
+                console.error("❌ Error while updating rate:", error);
+                errorContainer.textContent = error.message || JSON.stringify(error);
                 errorContainer.classList.remove('d-none');
             } finally {
-
-                if (updateButton) {
-                    updateButton.disabled = false;
-                    updateButton.innerHTML = t('update_button');
-                }
+                updateButton.disabled = false;
+                updateButton.innerHTML = t('update_button');
             }
         }
     </script>
