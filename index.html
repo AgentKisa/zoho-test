@@ -10,85 +10,123 @@
             font-family: Arial, sans-serif;
             padding: 15px;
             margin: 0;
-            font-size: 12px;
         }
 
-        .debug-info {
-            max-height: 400px;
-            overflow-y: auto;
+        .rate-container {
             border: 1px solid #ddd;
-            padding: 10px;
+            padding: 15px;
+            border-radius: 5px;
         }
 
-        .field-row {
-            margin: 5px 0;
-            padding: 2px;
-            border-bottom: 1px solid #eee;
+        .rate-row {
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
         }
 
-        .field-name {
+        .update-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .update-btn:hover {
+            background: #0056b3;
+        }
+
+        .difference-high {
+            color: #dc3545;
             font-weight: bold;
-            color: #007bff;
         }
     </style>
 </head>
 
 <body>
-    <div id="content">Завантаження...</div>
+    <div class="rate-container">
+        <div id="content">Завантаження...</div>
+    </div>
 
     <script>
         let currentRecordId = null;
 
         ZOHO.embeddedApp.on("PageLoad", function (data) {
-            console.log("PageLoad data:", data);
             currentRecordId = data.recordId;
-            loadDebugInfo();
+            loadRates();
         });
 
         ZOHO.embeddedApp.init();
 
-        async function loadDebugInfo() {
+        async function loadRates() {
             try {
-                // Получаем все данные записи
+                // Отримання курсу НБУ
+                const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
+                const nbuData = await nbuResponse.json();
+                const nbuRate = nbuData[0].rate;
+
+                // Отримання курсу з угоди
                 const dealResponse = await ZOHO.CRM.API.getRecord({
                     Entity: "Deals",
                     RecordID: currentRecordId
                 });
 
                 const dealData = dealResponse.data[0];
-                console.log("Все поля сделки:", dealData);
+                const dealRate = dealData.field || 0; // ИСПОЛЬЗУЕМ ВАШ КЛЮЧ 'field'
 
-                // Показываем все поля
-                let debugHtml = '<div class="debug-info">';
-                debugHtml += '<h4>Все поля записи (найдите поле с курсом валют):</h4>';
+                // Розрахунок різниці
+                const difference = dealRate > 0 ? ((dealRate / nbuRate - 1) * 100).toFixed(1) : 0;
+                const shouldShowButton = Math.abs(difference) >= 5;
 
-                Object.keys(dealData).forEach(key => {
-                    const value = dealData[key];
-                    debugHtml += `<div class="field-row">`;
-                    debugHtml += `<span class="field-name">${key}:</span> ${value}`;
-                    debugHtml += `</div>`;
-                });
+                // Оновлення інтерфейсу
+                document.getElementById('content').innerHTML = `
+                    <h4>Курс валют USD</h4>
+                    <div class="rate-row">
+                        <span>Курс НБУ:</span>
+                        <span><strong>${nbuRate.toFixed(2)} ₴</strong></span>
+                    </div>
+                    <div class="rate-row">
+                        <span>Курс в угоді:</span>
+                        <span><strong>${dealRate.toFixed(2)} ₴</strong></span>
+                    </div>
+                    <div class="rate-row">
+                        <span>Різниця:</span>
+                        <span class="${shouldShowButton ? 'difference-high' : ''}">${difference}%</span>
+                    </div>
+                    ${shouldShowButton ? '<button class="update-btn" onclick="updateRate()">Записати курс в угоду</button>' : ''}
+                `;
 
-                debugHtml += '</div>';
+            } catch (error) {
+                console.error('Error loading rates:', error);
+                document.getElementById('content').innerHTML = `<div style="color: red;">Помилка: ${error.message}</div>`;
+            }
+        }
 
-                // Также показываем курс НБУ для проверки
+        async function updateRate() {
+            try {
                 const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
                 const nbuData = await nbuResponse.json();
                 const nbuRate = nbuData[0].rate;
 
-                debugHtml += `<div style="margin-top: 20px; padding: 10px; background: #f0f8ff; border: 1px solid #007bff;">`;
-                debugHtml += `<strong>Курс НБУ: ${nbuRate.toFixed(2)} ₴</strong>`;
-                debugHtml += `</div>`;
+                const updateResponse = await ZOHO.CRM.API.updateRecord({
+                    Entity: "Deals",
+                    RecordID: currentRecordId,
+                    APIData: {
+                        "field": nbuRate // ИСПОЛЬЗУЕМ ВАШ КЛЮЧ 'field'
+                    }
+                });
 
-                document.getElementById('content').innerHTML = debugHtml;
-
+                if (updateResponse.data[0].status === "success") {
+                    alert('Курс успішно оновлено!');
+                    loadRates(); // Перезавантажити дані
+                } else {
+                    alert('Помилка оновлення курсу');
+                }
             } catch (error) {
-                console.error('Error:', error);
-                document.getElementById('content').innerHTML = `
-                    <div style="color: red;">
-                        Ошибка: ${error.message}
-                    </div>
-                `;
+                console.error('Error updating rate:', error);
+                alert('Помилка оновлення: ' + error.message);
             }
         }
     </script>
