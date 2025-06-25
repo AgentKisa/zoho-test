@@ -126,7 +126,6 @@
         ZOHO.embeddedApp.on("PageLoad", function (data) {
             console.log("PageLoad data:", data);
 
-            и
             window.currentRecordId = data.recordId || data.EntityId || data.entity_id;
             window.currentEntityId = data.EntityId || data.entity_id || data.recordId;
 
@@ -241,7 +240,8 @@
                     Entity: "Deals",
                     RecordID: recordId,
                     APIData: {
-                        "field": nbuRate
+                        id: recordId,
+                        field: nbuRate
                     }
                 });
 
