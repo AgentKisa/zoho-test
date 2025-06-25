@@ -185,7 +185,10 @@
                 const updateResponse = await ZOHO.CRM.API.updateRecord({
                     Entity: "Deals",
                     RecordID: currentRecordId,
-                    APIData: { "field": nbuRate }
+                    APIData: {
+                        id: currentRecordId,
+                        field: nbuRate
+                    }
                 });
 
                 console.log("✅ Результат updateRecord:", updateResponse);
