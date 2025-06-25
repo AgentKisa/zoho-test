@@ -1,132 +1,207 @@
 <!DOCTYPE html>
-<html>
+<html lang="uk">
 
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>NBU Exchange Rate Widget</title>
+
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
     <script src="https://live.zwidgets.com/js-sdk/1.1/ZohoEmbededAppSDK.min.js"></script>
+
     <style>
         body {
-            font-family: Arial, sans-serif;
-            padding: 15px;
             margin: 0;
         }
 
-        .rate-container {
-            border: 1px solid #ddd;
-            padding: 15px;
-            border-radius: 5px;
+        .widget-card {
+            margin: 1rem;
         }
 
-        .rate-row {
-            margin: 8px 0;
-            display: flex;
-            justify-content: space-between;
-        }
 
-        .update-btn {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-
-        .update-btn:hover {
-            background: #0056b3;
-        }
-
-        .difference-high {
-            color: #dc3545;
-            font-weight: bold;
+        .spinner-border-sm {
+            vertical-align: text-bottom;
         }
     </style>
 </head>
 
 <body>
-    <div class="rate-container">
-        <div id="content">Завантаження...</div>
+    <div class="widget-card">
+
+        <div class="d-flex justify-content-end mb-2">
+            <button class="btn btn-sm btn-outline-secondary me-1" onclick="setLanguage('uk')">УКР</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="setLanguage('en')">ENG</button>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <div id="content">
+                    <div class="d-flex justify-content-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="error-container" class="alert alert-danger mt-3 d-none"></div>
+            </div>
+        </div>
     </div>
 
     <script>
         let currentRecordId = null;
+        let currentLang = 'uk';
+
+
+        const locales = {
+            uk: {
+                title: "Курс валют USD",
+                nbu_rate: "Курс НБУ:",
+                deal_rate: "Курс в угоді:",
+                difference: "Різниця:",
+                update_button: "Записати курс в угоду",
+                update_button_loading: "Оновлення...",
+                nbu_error: "Помилка: Не вдалося отримати курс НБУ.",
+                crm_update_error: "Помилка: Не вдалося оновити запис в CRM.",
+                update_success: "Курс успішно оновлено!",
+                log_init: "Віджет ініціалізовано.",
+                log_nbu_fetched: "Курс НБУ отримано з API: ",
+                log_nbu_cached: "Курс НБУ взято з кешу: ",
+                log_button_click: "Натиснуто кнопку оновлення курсу.",
+                log_crm_updated: "Запис в CRM успішно оновлено."
+            },
+            en: {
+                title: "USD Exchange Rate",
+                nbu_rate: "NBU Rate:",
+                deal_rate: "Deal Rate:",
+                difference: "Difference:",
+                update_button: "Update Rate in Deal",
+                update_button_loading: "Updating...",
+                nbu_error: "Error: Could not fetch NBU rate.",
+                crm_update_error: "Error: Could not update CRM record.",
+                update_success: "Rate updated successfully!",
+                log_init: "Widget initialized.",
+                log_nbu_fetched: "NBU rate fetched from API: ",
+                log_nbu_cached: "NBU rate taken from cache: ",
+                log_button_click: "Update rate button clicked.",
+                log_crm_updated: "CRM record updated successfully."
+            }
+        };
+
+
+        const t = (key) => locales[currentLang][key] || key;
+
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            loadRates();
+        }
+
 
         ZOHO.embeddedApp.on("PageLoad", function (data) {
             currentRecordId = data.recordId;
+            console.log(t('log_init'));
             loadRates();
         });
-
         ZOHO.embeddedApp.init();
 
         async function loadRates() {
             try {
-                // Отримання курсу НБУ
-                const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
-                const nbuData = await nbuResponse.json();
-                const nbuRate = nbuData[0].rate;
+                document.getElementById('error-container').classList.add('d-none');
 
-                // Отримання курсу з угоди
-                const dealResponse = await ZOHO.CRM.API.getRecord({
-                    Entity: "Deals",
-                    RecordID: currentRecordId
-                });
 
+                let nbuRate;
+                const cachedData = JSON.parse(localStorage.getItem('nbuRateData'));
+
+                if (cachedData && (Date.now() - cachedData.timestamp < 3600000)) {
+                    nbuRate = cachedData.rate;
+                    console.log(t('log_nbu_cached') + nbuRate);
+                } else {
+
+                    const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
+                    if (!nbuResponse.ok) throw new Error(t('nbu_error'));
+                    const nbuData = await nbuResponse.json();
+                    nbuRate = nbuData[0].rate;
+                    localStorage.setItem('nbuRateData', JSON.stringify({ rate: nbuRate, timestamp: Date.now() }));
+                    console.log(t('log_nbu_fetched') + nbuRate);
+                }
+
+
+                const dealResponse = await ZOHO.CRM.API.getRecord({ Entity: "Deals", RecordID: currentRecordId });
                 const dealData = dealResponse.data[0];
-                const dealRate = dealData.field || 0; // ИСПОЛЬЗУЕМ ВАШ КЛЮЧ 'field'
+                const dealRate = dealData.field || 0;
 
-                // Розрахунок різниці
+
                 const difference = dealRate > 0 ? ((dealRate / nbuRate - 1) * 100).toFixed(1) : 0;
                 const shouldShowButton = Math.abs(difference) >= 5;
 
-                // Оновлення інтерфейсу
-                document.getElementById('content').innerHTML = `
-                    <h4>Курс валют USD</h4>
-                    <div class="rate-row">
-                        <span>Курс НБУ:</span>
-                        <span><strong>${nbuRate.toFixed(2)} ₴</strong></span>
-                    </div>
-                    <div class="rate-row">
-                        <span>Курс в угоді:</span>
-                        <span><strong>${dealRate.toFixed(2)} ₴</strong></span>
-                    </div>
-                    <div class="rate-row">
-                        <span>Різниця:</span>
-                        <span class="${shouldShowButton ? 'difference-high' : ''}">${difference}%</span>
-                    </div>
-                    ${shouldShowButton ? '<button class="update-btn" onclick="updateRate()">Записати курс в угоду</button>' : ''}
-                `;
 
+                document.getElementById('content').innerHTML = `
+                    <h5 class="card-title">${t('title')}</h5>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            ${t('nbu_rate')}
+                            <span class="badge bg-primary rounded-pill">${nbuRate.toFixed(2)} ₴</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            ${t('deal_rate')}
+                            <span class="badge bg-secondary rounded-pill">${dealRate.toFixed(2)} ₴</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            ${t('difference')}
+                            <span class="badge ${shouldShowButton ? 'bg-danger' : 'bg-success'} rounded-pill">${difference}%</span>
+                        </li>
+                    </ul>
+                    ${shouldShowButton ? `<button id="update-btn" class="btn btn-primary mt-3" onclick="updateRate()">${t('update_button')}</button>` : ''}
+                `;
             } catch (error) {
-                console.error('Error loading rates:', error);
-                document.getElementById('content').innerHTML = `<div style="color: red;">Помилка: ${error.message}</div>`;
+
+                console.error(error);
+                const errorContainer = document.getElementById('error-container');
+                errorContainer.textContent = error.message;
+                errorContainer.classList.remove('d-none');
             }
         }
 
         async function updateRate() {
+            console.log(t('log_button_click'));
+            const updateButton = document.getElementById('update-btn');
+
+
+            updateButton.disabled = true;
+            updateButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${t('update_button_loading')}`;
+
             try {
                 const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
+                if (!nbuResponse.ok) throw new Error(t('nbu_error'));
                 const nbuData = await nbuResponse.json();
                 const nbuRate = nbuData[0].rate;
 
                 const updateResponse = await ZOHO.CRM.API.updateRecord({
                     Entity: "Deals",
                     RecordID: currentRecordId,
-                    APIData: {
-                        "field": nbuRate // ИСПОЛЬЗУЕМ ВАШ КЛЮЧ 'field'
-                    }
+                    APIData: { "field": nbuRate }
                 });
 
-                if (updateResponse.data[0].status === "success") {
-                    alert('Курс успішно оновлено!');
-                    loadRates(); // Перезавантажити дані
-                } else {
-                    alert('Помилка оновлення курсу');
-                }
+                if (updateResponse.data[0].status !== "success") throw new Error(t('crm_update_error'));
+
+                console.log(t('log_crm_updated'));
+                alert(t('update_success'));
+                loadRates();
             } catch (error) {
-                console.error('Error updating rate:', error);
-                alert('Помилка оновлення: ' + error.message);
+
+                console.error(error);
+                const errorContainer = document.getElementById('error-container');
+                errorContainer.textContent = error.message;
+                errorContainer.classList.remove('d-none');
+            } finally {
+
+                if (updateButton) {
+                    updateButton.disabled = false;
+                    updateButton.innerHTML = t('update_button');
+                }
             }
         }
     </script>
