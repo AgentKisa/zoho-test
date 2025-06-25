@@ -20,7 +20,6 @@
             margin: 1rem;
         }
 
-
         .spinner-border-sm {
             vertical-align: text-bottom;
         }
@@ -46,12 +45,16 @@
                 </div>
 
                 <div id="error-container" class="alert alert-danger mt-3 d-none"></div>
+
+                <div id="success-container" class="alert alert-success mt-3 d-none"></div>
             </div>
         </div>
     </div>
 
     <script>
-        let currentRecordId = null;
+
+        window.currentRecordId = null;
+        window.currentEntityId = null;
         let currentLang = 'uk';
 
 
@@ -63,14 +66,14 @@
                 difference: "Різниця:",
                 update_button: "Записати курс в угоду",
                 update_button_loading: "Оновлення...",
-                nbu_error: "Помилка: Не вдалося отримати курс НБУ.",
-                crm_update_error: "Помилка: Не вдалося оновити запис в CRM.",
+                nbu_error: "Помилка: Не вдалося отримати курс НБУ",
+                crm_update_error: "Помилка: Не вдалося оновити запис в CRM",
                 update_success: "Курс успішно оновлено!",
-                log_init: "Віджет ініціалізовано.",
+                log_init: "Віджет ініціалізовано",
                 log_nbu_fetched: "Курс НБУ отримано з API: ",
                 log_nbu_cached: "Курс НБУ взято з кешу: ",
-                log_button_click: "Натиснуто кнопку оновлення курсу.",
-                log_crm_updated: "Запис в CRM успішно оновлено."
+                log_button_click: "Натиснуто кнопку оновлення курсу",
+                log_crm_updated: "Запис в CRM успішно оновлено"
             },
             en: {
                 title: "USD Exchange Rate",
@@ -79,20 +82,18 @@
                 difference: "Difference:",
                 update_button: "Update Rate in Deal",
                 update_button_loading: "Updating...",
-                nbu_error: "Error: Could not fetch NBU rate.",
-                crm_update_error: "Error: Could not update CRM record.",
+                nbu_error: "Error: Could not fetch NBU rate",
+                crm_update_error: "Error: Could not update CRM record",
                 update_success: "Rate updated successfully!",
-                log_init: "Widget initialized.",
+                log_init: "Widget initialized",
                 log_nbu_fetched: "NBU rate fetched from API: ",
                 log_nbu_cached: "NBU rate taken from cache: ",
-                log_button_click: "Update rate button clicked.",
-                log_crm_updated: "CRM record updated successfully."
+                log_button_click: "Update rate button clicked",
+                log_crm_updated: "CRM record updated successfully"
             }
         };
 
-
         const t = (key) => locales[currentLang][key] || key;
-
 
         function setLanguage(lang) {
             currentLang = lang;
@@ -100,16 +101,54 @@
         }
 
 
+        function showError(message) {
+            const errorContainer = document.getElementById('error-container');
+            errorContainer.textContent = message;
+            errorContainer.classList.remove('d-none');
+            document.getElementById('success-container').classList.add('d-none');
+        }
+
+
+        function showSuccess(message) {
+            const successContainer = document.getElementById('success-container');
+            successContainer.textContent = message;
+            successContainer.classList.remove('d-none');
+            document.getElementById('error-container').classList.add('d-none');
+        }
+
+
+        function hideMessages() {
+            document.getElementById('error-container').classList.add('d-none');
+            document.getElementById('success-container').classList.add('d-none');
+        }
+
+
         ZOHO.embeddedApp.on("PageLoad", function (data) {
-            currentRecordId = data.recordId;
+            console.log("PageLoad data:", data);
+
+            и
+            window.currentRecordId = data.recordId || data.EntityId || data.entity_id;
+            window.currentEntityId = data.EntityId || data.entity_id || data.recordId;
+
+            console.log("Record ID:", window.currentRecordId);
+            console.log("Entity ID:", window.currentEntityId);
             console.log(t('log_init'));
+
             loadRates();
         });
+
         ZOHO.embeddedApp.init();
 
         async function loadRates() {
             try {
-                document.getElementById('error-container').classList.add('d-none');
+                hideMessages();
+
+
+                if (!window.currentRecordId && !window.currentEntityId) {
+                    throw new Error("ID запису не знайдено");
+                }
+
+                const recordId = window.currentRecordId || window.currentEntityId;
 
 
                 let nbuRate;
@@ -119,17 +158,27 @@
                     nbuRate = cachedData.rate;
                     console.log(t('log_nbu_cached') + nbuRate);
                 } else {
-
-                    const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
-                    if (!nbuResponse.ok) throw new Error(t('nbu_error'));
-                    const nbuData = await nbuResponse.json();
-                    nbuRate = nbuData[0].rate;
-                    localStorage.setItem('nbuRateData', JSON.stringify({ rate: nbuRate, timestamp: Date.now() }));
-                    console.log(t('log_nbu_fetched') + nbuRate);
+                    try {
+                        const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
+                        if (!nbuResponse.ok) throw new Error('NBU API error');
+                        const nbuData = await nbuResponse.json();
+                        nbuRate = nbuData[0].rate;
+                        localStorage.setItem('nbuRateData', JSON.stringify({ rate: nbuRate, timestamp: Date.now() }));
+                        console.log(t('log_nbu_fetched') + nbuRate);
+                    } catch (error) {
+                        console.error('NBU API Error:', error);
+                        throw new Error(t('nbu_error'));
+                    }
                 }
 
 
-                const dealResponse = await ZOHO.CRM.API.getRecord({ Entity: "Deals", RecordID: currentRecordId });
+                const dealResponse = await ZOHO.CRM.API.getRecord({
+                    Entity: "Deals",
+                    RecordID: recordId
+                });
+
+                console.log("Deal data:", dealResponse);
+
                 const dealData = dealResponse.data[0];
                 const dealRate = dealData.field || 0;
 
@@ -157,58 +206,65 @@
                     ${shouldShowButton ? `<button id="update-btn" class="btn btn-primary mt-3" onclick="updateRate()">${t('update_button')}</button>` : ''}
                 `;
             } catch (error) {
-
-                console.error(error);
-                const errorContainer = document.getElementById('error-container');
-                errorContainer.textContent = error.message;
-                errorContainer.classList.remove('d-none');
+                console.error('Load rates error:', error);
+                showError(error.message || 'Невідома помилка');
             }
         }
 
-
-        async function updateRate() {
+        window.updateRate = async function () {
             console.log(t('log_button_click'));
+
+
+            const recordId = window.currentRecordId || window.currentEntityId;
+            if (!recordId) {
+                showError("ID запису не знайдено");
+                return;
+            }
+
+            console.log("Using Record ID for update:", recordId);
+
             const updateButton = document.getElementById('update-btn');
-
             updateButton.disabled = true;
-            updateButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${t('update_button_loading')}`;
-
-            const errorContainer = document.getElementById('error-container');
+            updateButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status"></span> ${t('update_button_loading')}`;
 
             try {
+
                 const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
                 if (!nbuResponse.ok) throw new Error(t('nbu_error'));
-
                 const nbuData = await nbuResponse.json();
                 const nbuRate = nbuData[0].rate;
 
+                console.log('Updating with rate:', nbuRate);
+
+
                 const updateResponse = await ZOHO.CRM.API.updateRecord({
                     Entity: "Deals",
-                    RecordID: currentRecordId,
+                    RecordID: recordId,
                     APIData: {
-                        id: currentRecordId,
-                        field: nbuRate
+                        "field": nbuRate
                     }
                 });
 
-                console.log("✅ Результат updateRecord:", updateResponse);
+                console.log('Update response:', updateResponse);
 
-                if (!updateResponse.data || !updateResponse.data[0] || updateResponse.data[0].status !== "success") {
-                    let errText = JSON.stringify(updateResponse.data[0]);
-                    throw new Error(`${t('crm_update_error')} ${errText}`);
+                if (updateResponse.data && updateResponse.data[0] && updateResponse.data[0].status === "success") {
+                    console.log(t('log_crm_updated'));
+                    showSuccess(t('update_success'));
+
+                    localStorage.setItem('nbuRateData', JSON.stringify({ rate: nbuRate, timestamp: Date.now() }));
+
+                    setTimeout(() => loadRates(), 2000);
+                } else {
+                    throw new Error(t('crm_update_error') + ' - ' + JSON.stringify(updateResponse));
                 }
-
-                console.log(t('log_crm_updated'));
-                alert(t('update_success'));
-                loadRates();
-
             } catch (error) {
-                console.error("❌ Error while updating rate:", error);
-                errorContainer.textContent = error.message || JSON.stringify(error);
-                errorContainer.classList.remove('d-none');
+                console.error('Update error:', error);
+                showError(error.message);
             } finally {
-                updateButton.disabled = false;
-                updateButton.innerHTML = t('update_button');
+                if (updateButton) {
+                    updateButton.disabled = false;
+                    updateButton.innerHTML = t('update_button');
+                }
             }
         }
     </script>
