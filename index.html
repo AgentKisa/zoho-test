@@ -3,131 +3,94 @@
 
 <head>
     <meta charset="utf-8">
-    <title>Курс валют НБУ</title>
+    <title>NBU Exchange Rate Widget</title>
+    <script src="https://live.zwidgets.com/js-sdk/1.1/ZohoEmbededAppSDK.min.js"></script>
     <style>
-        .widget-container {
-            padding: 15px;
+        body {
             font-family: Arial, sans-serif;
+            padding: 15px;
+            margin: 0;
+            font-size: 12px;
         }
 
-        .rate-row {
-            margin: 10px 0;
-            display: flex;
-            justify-content: space-between;
+        .debug-info {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
         }
 
-        .update-button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            display: none;
+        .field-row {
+            margin: 5px 0;
+            padding: 2px;
+            border-bottom: 1px solid #eee;
         }
 
-        .update-button:hover {
-            background-color: #45a049;
-        }
-
-        .difference-high {
-            color: red;
+        .field-name {
+            font-weight: bold;
+            color: #007bff;
         }
     </style>
 </head>
 
 <body>
-    <div class="widget-container">
-        <div class="rate-row">
-            <span>Курс НБУ:</span>
-            <span id="nbu-rate">...</span>
-        </div>
-        <div class="rate-row">
-            <span>Курс в угоді:</span>
-            <span id="deal-rate">...</span>
-        </div>
-        <div class="rate-row">
-            <span>Різниця:</span>
-            <span id="difference">...</span>
-        </div>
-        <button id="update-rate" class="update-button">Записати курс в угоду</button>
-    </div>
+    <div id="content">Завантаження...</div>
 
-    <script src="https://live.zwidgets.com/js-sdk/1.1/ZohoEmbededAppSDK.min.js"></script>
     <script>
+        let currentRecordId = null;
+
         ZOHO.embeddedApp.on("PageLoad", function (data) {
-            console.log(data);
-            initialize();
+            console.log("PageLoad data:", data);
+            currentRecordId = data.recordId;
+            loadDebugInfo();
         });
 
-        ZOHO.embeddedApp.init().then(function () {
-            // Initialization code here
-        });
+        ZOHO.embeddedApp.init();
 
-        async function initialize() {
+        async function loadDebugInfo() {
             try {
-                // Отримуємо дані про поточну угоду
-                const dealData = await getDealData();
-
-                // Отримуємо курс НБУ
-                const nbuRate = await getNBURate();
-
-                // Оновлюємо інтерфейс
-                updateUI(dealData, nbuRate);
-            } catch (error) {
-                console.error('Error in initialization:', error);
-            }
-        }
-
-        async function getDealData() {
-            const response = await ZOHO.CRM.API.getRecord({
-                Entity: "Deals",
-                RecordID: EntityId
-            });
-            return response.data[0];
-        }
-
-        async function getNBURate() {
-            const response = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
-            const data = await response.json();
-            return data[0].rate;
-        }
-
-        function updateUI(dealData, nbuRate) {
-            const dealRate = dealData.Currency_Rate || 0;
-            const difference = ((dealRate / nbuRate - 1) * 100).toFixed(1);
-
-            document.getElementById('nbu-rate').textContent = nbuRate.toFixed(2);
-            document.getElementById('deal-rate').textContent = dealRate.toFixed(2);
-            document.getElementById('difference').textContent = `${difference}%`;
-
-            const updateButton = document.getElementById('update-rate');
-            if (Math.abs(difference) >= 5) {
-                updateButton.style.display = 'block';
-            }
-        }
-
-        document.getElementById('update-rate').addEventListener('click', async function () {
-            try {
-                const nbuRate = await getNBURate();
-
-                const updateResponse = await ZOHO.CRM.API.updateRecord({
+                // Получаем все данные записи
+                const dealResponse = await ZOHO.CRM.API.getRecord({
                     Entity: "Deals",
-                    RecordID: EntityId,
-                    APIData: {
-                        "Currency_Rate": nbuRate
-                    }
+                    RecordID: currentRecordId
                 });
 
-                if (updateResponse.data[0].status === "success") {
-                    alert("Курс успішно оновлено!");
-                    initialize(); // Оновлюємо дані віджета
-                }
+                const dealData = dealResponse.data[0];
+                console.log("Все поля сделки:", dealData);
+
+                // Показываем все поля
+                let debugHtml = '<div class="debug-info">';
+                debugHtml += '<h4>Все поля записи (найдите поле с курсом валют):</h4>';
+
+                Object.keys(dealData).forEach(key => {
+                    const value = dealData[key];
+                    debugHtml += `<div class="field-row">`;
+                    debugHtml += `<span class="field-name">${key}:</span> ${value}`;
+                    debugHtml += `</div>`;
+                });
+
+                debugHtml += '</div>';
+
+                // Также показываем курс НБУ для проверки
+                const nbuResponse = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json&valcode=USD');
+                const nbuData = await nbuResponse.json();
+                const nbuRate = nbuData[0].rate;
+
+                debugHtml += `<div style="margin-top: 20px; padding: 10px; background: #f0f8ff; border: 1px solid #007bff;">`;
+                debugHtml += `<strong>Курс НБУ: ${nbuRate.toFixed(2)} ₴</strong>`;
+                debugHtml += `</div>`;
+
+                document.getElementById('content').innerHTML = debugHtml;
+
             } catch (error) {
-                console.error('Error updating rate:', error);
-                alert("Помилка при оновленні курсу");
+                console.error('Error:', error);
+                document.getElementById('content').innerHTML = `
+                    <div style="color: red;">
+                        Ошибка: ${error.message}
+                    </div>
+                `;
             }
-        });
+        }
     </script>
 </body>
 
